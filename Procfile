@@ -1,1 +1,1 @@
-worker: python homework.py
+app: python homework.py

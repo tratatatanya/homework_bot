@@ -56,7 +56,7 @@ def get_api_answer(current_timestamp):
     params = {'from_date': timestamp}
     try:
         response = requests.get(ENDPOINT, headers=HEADERS, params=params)
-    except Exception as error:
+    except Exception:
         logger.error('Ошибка при получении ответа.')
         raise SystemError('Ошибка при получении ответа.')
     else:
@@ -97,17 +97,18 @@ def parse_status(homework):
         homework_name = homework.get('homework_name')
     except KeyError:
         message = f'Ничего не найдено по ключу {"homework_name"}'
+        logger.info(message)
     if homework_name is None:
         logger.error('Домашняя работа не найдена')
-        raise KeyError('1')
+        raise KeyError('Домашняя работа не найдена')
     homework_status = homework.get('status')
     if homework_status is None:
         logger.error('Статус домашней работы не найден')
-        raise KeyError('2')
+        raise KeyError('Статус домашней работы не найден')
     verdict = HOMEWORK_STATUSES[homework_status]
     if verdict is None:
         logger.error('Вердикт по домашней работе не найден')
-        raise KeyError('3')
+        raise KeyError('Вердикт по домашней работе не найден')
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
@@ -137,7 +138,7 @@ def main():
                     current_status = homework_status
                     logger.info(message)
                     send_message(bot, message)
-            except IndexError as error:
+            except IndexError:
                 message = 'Нет домашек за последние сутки'
                 logger.info(message)
                 if last_message != message:

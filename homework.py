@@ -139,7 +139,7 @@ def main():
                     logger.info(message)
                     send_message(bot, message)
             except IndexError:
-                message = 'Нет домашек за последние сутки'
+                message = 'Нет проверенных домашек за последние сутки'
                 logger.info(message)
                 if last_message != message:
                     last_message = message

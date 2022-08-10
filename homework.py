@@ -45,9 +45,8 @@ def send_message(bot, message):
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
         logger.info('отправлено сообщение в телеграм')
-    except Exception as error:
-        logger.error('ошибка при отправке сообщения')
-        raise SystemError(f'Ошибка {error} при отправке сообщения.')
+    except telegram.error.TelegramError:
+        raise exceptions.MessageNotSendedException('Не отправлено')
 
 
 def get_api_answer(current_timestamp):
@@ -56,59 +55,44 @@ def get_api_answer(current_timestamp):
     params = {'from_date': timestamp}
     try:
         response = requests.get(ENDPOINT, headers=HEADERS, params=params)
-    except Exception:
-        logger.error('Ошибка при получении ответа.')
-        raise SystemError('Ошибка при получении ответа.')
-    else:
-        if response.status_code == HTTPStatus.OK:
-            logger.info('Получен ответ')
-            homework = response.json()
-            if 'error' in homework:
-                logger.error('ошибка в ответе')
-                raise SystemError(f'Ошибка json, {homework["error"]}')
-            elif 'code' in homework:
-                logger.error('ошибка в ответе')
-                raise SystemError(f'Ошибка json, {homework["code"]}')
-            else:
-                return homework
-        else:
-            logger.error('Сервис недоступен')
-            raise SystemError('Сервис недоступен')
+    except requests.RequestException:
+        raise requests.RequestException('Ошибка при получении ответа')
+    if response.status_code != HTTPStatus.OK:
+        raise exceptions.APIStatusCodeException(
+            f'Ответ сервера {response.status_code}'
+        )
+    logger.info('Получен ответ')
+    homework = response.json()
+    if ('error' or 'code') in homework:
+        raise exceptions.WrongAPIAnswerException('Ошибка json')
+    return homework
 
 
 def check_response(response):
     """Проверяем полученный ответ."""
-    if type(response) == dict:
-        response['current_date']
-        homeworks = response['homeworks']
-        if type(homeworks) == list:
-            return homeworks
-        else:
-            logger.error('В ответе не список')
-            raise TypeError('В ответе не список')
-    else:
-        logger.error('В ответе не словарь')
+    if not isinstance(response, dict):
         raise TypeError('В ответе не словарь')
+    if response.get('current_date') is None:
+        raise KeyError('В ответе нет current_date')
+    homeworks = response['homeworks']
+    if not isinstance(homeworks, list):
+        raise TypeError('В ответе не список')
+    return homeworks
 
 
 def parse_status(homework):
     """Ищем подходящий статус."""
-    try:
-        homework_name = homework.get('homework_name')
-    except KeyError:
-        message = f'Ничего не найдено по ключу {"homework_name"}'
-        logger.info(message)
+    homework_name = homework.get('homework_name')
     if homework_name is None:
-        logger.error('Домашняя работа не найдена')
         raise KeyError('Домашняя работа не найдена')
     homework_status = homework.get('status')
-    if homework_status is None:
-        logger.error('Статус домашней работы не найден')
+    if not homework_status:
         raise KeyError('Статус домашней работы не найден')
-    verdict = HOMEWORK_STATUSES[homework_status]
+    verdict = HOMEWORK_STATUSES.get(homework_status)
     if verdict is None:
-        logger.error('Вердикт по домашней работе не найден')
-        raise KeyError('Вердикт по домашней работе не найден')
+        raise exceptions.MissingVerdictException(
+            'Вердикт по домашней работе не найден'
+        )
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
@@ -120,38 +104,34 @@ def check_tokens():
 def main():
     """Основная логика работы бота."""
     if not check_tokens():
-        message = 'Не хватает переменных окружения!'
-        logger.critical(message)
-        raise exceptions.MissingTokenException(message)
+        logger.critical('Не хватает переменных окружения!')
+        raise SystemExit('Бот не запустился.')
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    current_timestamp = int(time.time()) - 86400
+    current_timestamp = int(time.time())
     current_status = None
     last_message = None
     while True:
         try:
             response = get_api_answer(current_timestamp)
             homeworks = check_response(response)
-            try:
-                homework_status = homeworks[0].get('status')
-                message = parse_status(homeworks[0])
-                if homework_status != current_status:
-                    current_status = homework_status
-                    logger.info(message)
-                    send_message(bot, message)
-            except IndexError:
-                message = 'Нет проверенных домашек за последние сутки'
+            if len(homeworks) == 0:
+                logger.info('Список проверенных домашек пуст.')
+                continue
+            homework_status = homeworks[0].get('status')
+            message = parse_status(homeworks[0])
+            if homework_status != current_status:
+                current_status = homework_status
                 logger.info(message)
-                if last_message != message:
-                    last_message = message
-                    send_message(bot, message)
-            else:
-                message = 'Статус не изменился.'
-                logger.debug(message)
+                send_message(bot, message)
+            logger.debug('Статус не изменился.')
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
+            if last_message != message:
+                send_message(bot, message)
+                last_message = message
             logger.error(message)
-            send_message(bot, message)
-        time.sleep(RETRY_TIME)
+        finally:
+            time.sleep(RETRY_TIME)
 
 
 if __name__ == '__main__':

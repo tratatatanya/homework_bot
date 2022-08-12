@@ -12,3 +12,7 @@ class WrongResponseException(Exception):
 
 class APIStatusCodeException(Exception):
     """Сервис недоступен."""
+
+
+class APIRequestException(Exception):
+    """Ошибка при запросе API."""

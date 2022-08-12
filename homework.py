@@ -55,8 +55,10 @@ def get_api_answer(current_timestamp):
     params = {'from_date': timestamp}
     try:
         response = requests.get(ENDPOINT, headers=HEADERS, params=params)
-    except requests.RequestException:
-        raise requests.RequestException('Ошибка при получении ответа')
+    except requests.RequestException as e:
+        raise exceptions.APIRequestException(
+            f'Ошибка {e} при получении ответа: {ENDPOINT}, {HEADERS}, {params}'
+        )
     if response.status_code != HTTPStatus.OK:
         raise exceptions.APIStatusCodeException(
             f'Ответ сервера {response.status_code}'
@@ -124,12 +126,14 @@ def main():
                 logger.info(message)
                 send_message(bot, message)
             logger.debug('Статус не изменился.')
+        except exceptions.MessageNotSendedException as bot_error:
+            logger.error(f'Сбой при отправке сообщения: {bot_error}')
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
+            logger.error(message)
             if last_message != message:
                 send_message(bot, message)
                 last_message = message
-            logger.error(message)
         finally:
             time.sleep(RETRY_TIME)
 
